@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🔖 书签智能管家</title>
+<script src="https://unpkg.com/dexie@4.0.8/dist/dexie.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --border: #2a3040;
+  --text: #e1e4ea;
+  --text-dim: #8b919e;
+  --accent: #6c8cff;
+  --accent-hover: #8aa4ff;
+  --tag-bg: #1e2d4a;
+  --tag-text: #8bb8ff;
+  --danger: #ff5c6c;
+  --success: #3dd68c;
+  --shadow: 0 2px 8px rgba(0,0,0,0.3);
+  --radius: 10px;
+}
+
+body {
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  overflow: hidden;
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+.sidebar h1 { font-size: 18px; margin-bottom: 12px; }
+.sidebar-filter {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+}
+.sidebar-filter:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+.sidebar-filter.active { background: var(--accent); color: #fff; font-weight: 600; }
+.sidebar-filter.droppable {
+  background: rgba(108,140,255,0.15);
+  border: 1px dashed var(--accent);
+  color: var(--accent);
+}
+.sidebar-count { float: right; font-size: 12px; opacity: 0.7; }
+.btn-del-cat {
+  float: right;
+  font-size: 14px;
+  opacity: 0;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: opacity 0.15s;
+  background: none;
+  border: none;
+  color: var(--danger);
+}
+.sidebar-filter:hover .btn-del-cat { opacity: 0.7; }
+.btn-del-cat:hover { opacity: 1 !important; }
+.add-category { margin-top: 4px; }
+.add-category input {
+  width: 100%;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+.add-category input:focus {
+  border-color: var(--accent);
+  border-style: solid;
+  outline: none;
+  color: var(--text);
+}
+.add-category input::placeholder { color: var(--text-dim); opacity: 0.5; }
+.card.dragging { opacity: 0.4; }
+.card.drag-over { border: 2px dashed var(--accent); }
+.domain-header.drag-over { background: rgba(108,140,255,0.12); outline: 1px dashed var(--accent); }
+
+/* ── Main ── */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Toolbar ── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.toolbar .search-box {
+  flex: 1;
+  max-width: 420px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 16px;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.toolbar .search-box:focus { border-color: var(--accent); }
+.toolbar .search-box::placeholder { color: var(--text-dim); }
+
+.btn {
+  padding: 9px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+.btn-ghost:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+.btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+.btn-danger:hover { background: var(--danger); color: #fff; }
+.btn-sm { padding: 5px 12px; font-size: 12px; }
+
+.toolbar .stats { color: var(--text-dim); font-size: 13px; margin-left: auto; }
+/* ── Content ── */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+}
+
+/* ── Card Grid ── */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.card:hover { border-color: var(--accent); box-shadow: var(--shadow); transform: translateY(-1px); }
+.card-header { display: flex; align-items: flex-start; gap: 10px; }
+.card-favicon {
+  width: 20px; height: 20px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  background: var(--border);
+}
+.card-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.card-title a { color: var(--text); text-decoration: none; }
+.card-title a:hover { color: var(--accent); }
+.card-url {
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card-summary {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.card-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: var(--tag-bg);
+  color: var(--tag-text);
+}
+.card-folder {
+  font-size: 11px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+/* ── Import Overlay ── */
+.overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+}
+.overlay.hidden { display: none; }
+.overlay-content {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 32px;
+  max-width: 500px;
+  width: 90%;
+  text-align: center;
+}
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 40px;
+  margin: 20px 0;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+.drop-zone.drag-over { border-color: var(--accent); background: rgba(108,140,255,0.05); }
+.drop-zone p { color: var(--text-dim); font-size: 14px; }
+.drop-zone .icon { font-size: 40px; margin-bottom: 10px; }
+
+/* ── Empty State ── */
+.empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-dim);
+}
+.empty .icon { font-size: 56px; margin-bottom: 16px; }
+.empty h2 { font-size: 20px; margin-bottom: 8px; color: var(--text); }
+.empty p { font-size: 14px; max-width: 400px; margin: 0 auto; }
+
+/* ── Toast ── */
+.toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 20px;
+  font-size: 13px;
+  box-shadow: var(--shadow);
+  z-index: 200;
+  animation: toastIn 0.3s ease;
+}
+.toast.success { border-color: var(--success); }
+.toast.error { border-color: var(--danger); }
+@keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ── Edit Modal ── */
+.edit-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  max-width: 520px;
+  width: 90%;
+  text-align: left;
+  padding: 0;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-header h3 { font-size: 16px; }
+.modal-close { font-size: 20px; line-height: 1; }
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+}
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.form-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.form-input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  transition: border-color 0.2s;
+}
+.form-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.form-textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+.tag-input-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-height: 42px;
+  padding: 6px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: text;
+  transition: border-color 0.2s;
+}
+.tag-input-container:focus-within {
+  border-color: var(--accent);
+}
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: var(--tag-bg);
+  color: var(--tag-text);
+}
+.tag-chip-remove {
+  cursor: pointer;
+  opacity: 0.6;
+  font-size: 14px;
+  line-height: 1;
+}
+.tag-chip-remove:hover { opacity: 1; }
+.tag-input {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  flex: 1;
+  min-width: 100px;
+  outline: none;
+  font-family: inherit;
+}
+.category-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.category-chip {
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.category-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── Domain Grouping ── */
+.domain-group { margin-bottom: 28px; }
+.domain-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+}
+.domain-header:hover { opacity: 0.8; }
+.domain-favicon { width: 18px; height: 18px; border-radius: 4px; }
+.domain-name { font-size: 14px; font-weight: 600; color: var(--text-dim); }
+.domain-count { font-size: 12px; opacity: 0.7; }
+.domain-toggle {
+  margin-left: auto;
+  transition: transform 0.2s;
+  font-size: 12px;
+}
+.domain-toggle.collapsed { transform: rotate(-90deg); }
+.domain-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+.domain-cards.hidden { display: none; }
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .sidebar { display: none; }
+  .card-grid { grid-template-columns: 1fr; }
+  .domain-cards { grid-template-columns: 1fr; }
+  .edit-modal { max-width: 95vw; }
+}
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar" id="sidebar">
+  <h1>🔖 书签管家</h1>
+  <button class="sidebar-filter active" data-category="all">
+    全部书签 <span class="sidebar-count" id="count-all">0</span>
+  </button>
+  <div id="category-list"></div>
+  <div class="add-category">
+    <input type="text" id="add-category-input" placeholder="+ 新建分类" autocomplete="off">
+  </div>
+  <hr style="border-color:var(--border);margin:12px 0">
+  <button class="btn btn-ghost btn-sm" id="btn-import-sidebar" style="width:100%">📥 导入书签</button>
+</aside>
+
+<!-- Main -->
+<div class="main">
+  <div class="toolbar">
+    <input class="search-box" type="text" id="search" placeholder="搜索标题、摘要、标签...">
+    <button class="btn btn-primary" id="btn-import">📥 导入</button>
+    <button class="btn btn-ghost" id="btn-add">➕ 添加</button>
+    <button class="btn btn-ghost" id="btn-export">📤 导出</button>
+    <button class="btn btn-ghost btn-sm" id="btn-batch-ai" style="display:none" title="一键为未分类/无标签的书签调用 AI 填充">🤖 一键优化</button>
+    <button class="btn btn-ghost btn-sm" id="btn-clear" style="display:none">清空数据</button>
+    <span class="stats" id="stats"></span>
+  </div>
+  <div class="content" id="content">
+    <div class="empty">
+      <div class="icon">📚</div>
+      <h2>还没有书签</h2>
+      <p>点击上方「📥 导入」按钮，导入 Chrome 导出的书签 HTML 文件，AI 会自动帮你整理分类</p>
+    </div>
+  </div>
+</div>
+
+<!-- Import Overlay -->
+<div class="overlay hidden" id="overlay">
+  <div class="overlay-content">
+    <h2>📥 导入书签</h2>
+    <p style="color:var(--text-dim);margin-top:8px">从 Chrome 导出：书签管理器 → 三点菜单 → 导出书签</p>
+    <div class="drop-zone" id="drop-zone">
+      <div class="icon">📁</div>
+      <p>拖拽 HTML 文件到这里，或点击选择</p>
+      <input type="file" id="file-input" accept=".html,.htm" hidden>
+    </div>
+    <div id="import-stats" style="font-size:13px;color:var(--text-dim)"></div>
+    <div style="margin-top:16px;display:flex;gap:10px;justify-content:center">
+      <button class="btn btn-ghost" id="btn-cancel">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="overlay hidden" id="edit-overlay">
+  <div class="edit-modal">
+    <div class="modal-header">
+      <h3>✏️ 编辑书签</h3>
+      <button class="btn btn-ghost btn-sm modal-close" id="btn-edit-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">标题</label>
+        <input type="text" class="form-input" id="edit-title">
+      </div>
+      <div class="form-group">
+        <label class="form-label">分类</label>
+        <input type="text" class="form-input" id="edit-category" list="category-options" autocomplete="off" placeholder="输入或选择分类...">
+        <datalist id="category-options"></datalist>
+        <div class="category-chips" id="edit-category-chips"></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">标签</label>
+        <div class="tag-input-container" id="edit-tags-container">
+          <span id="edit-tag-chips"></span>
+          <input type="text" class="tag-input" id="edit-tag-input" placeholder="输入后回车添加...">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">摘要</label>
+        <textarea class="form-input form-textarea" id="edit-summary" rows="3" placeholder="一句话摘要..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="btn-edit-cancel">取消</button>
+      <button class="btn btn-primary" id="btn-edit-save">💾 保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Bookmark Modal -->
+<div class="overlay hidden" id="add-overlay">
+  <div class="edit-modal">
+    <div class="modal-header">
+      <h3>➕ 添加书签</h3>
+      <button class="btn btn-ghost btn-sm modal-close" id="btn-add-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">URL <span style="color:var(--danger)">*</span></label>
+        <input type="url" class="form-input" id="add-url" placeholder="https://..." required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">标题</label>
+        <input type="text" class="form-input" id="add-title" placeholder="留空则使用域名">
+      </div>
+      <div class="form-group">
+        <label class="form-label">分类</label>
+        <input type="text" class="form-input" id="add-category" list="category-options" autocomplete="off" placeholder="输入或选择分类...">
+        <div class="category-chips" id="add-category-chips"></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">标签</label>
+        <div class="tag-input-container" id="add-tags-container">
+          <span id="add-tag-chips"></span>
+          <input type="text" class="tag-input" id="add-tag-input" placeholder="输入后回车添加...">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">摘要</label>
+        <textarea class="form-input form-textarea" id="add-summary" rows="2" placeholder="一句话描述..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="btn-add-cancel">取消</button>
+      <button class="btn btn-primary" id="btn-add-save">💾 添加</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script>
+  setTimeout(() => {
+    const hasDb = typeof db !== 'undefined';
+    const hasEditFn = typeof editBookmark === 'function';
+    const hasModal = !!document.getElementById('edit-overlay');
+    const bmCount = (typeof state !== 'undefined' && state.bookmarks) ? state.bookmarks.length : -1;
+    console.log('=== bookmark-ai debug ===');
+    console.log('Dexie loaded:', hasDb);
+    console.log('editBookmark fn:', hasEditFn);
+    console.log('edit-overlay DOM:', hasModal);
+    console.log('bookmarks count:', bmCount);
+    if (!hasEditFn) console.error('editBookmark is not defined!');
+    if (!hasModal) console.error('edit-overlay is not in DOM!');
+  }, 500);
+</script>
+</body>
+</html>

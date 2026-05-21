@@ -1,0 +1,8 @@
+proxy.js
+CLAUDE.md
+PLAN.md
+.claude/
+.vscode/
+*.tmp
+.DS_Store
+Thumbs.db
