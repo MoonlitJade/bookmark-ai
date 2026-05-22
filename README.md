@@ -26,3 +26,7 @@
 ## 技术栈
 
 纯前端，零依赖（仅 Dexie.js CDN），无后端。
+
+## 测试
+练习GitHub workflow
+
