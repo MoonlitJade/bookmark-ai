@@ -4,7 +4,7 @@
 
 ## 功能
 
-- 导入 Chrome 浏览器导出的书签 HTML 文件
+- 导入浏览器导出的书签 HTML 文件（Chrome / Edge / Brave / Firefox 均支持）
 - AI 自动分类、打标签、生成摘要（基于 DeepSeek）
 - 拖拽排序、文件夹筛选、搜索过滤
 - 数据存储在浏览器本地（IndexedDB），无需后端
